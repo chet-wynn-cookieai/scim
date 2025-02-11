@@ -18,6 +18,11 @@ func unmarshal(data []byte, v interface{}) error {
 	return d.Decode(v)
 }
 
+type PatchValidationLogger interface {
+	LogPathError(err error, v json.RawMessage)
+	LogValueError(err error, v json.RawMessage)
+}
+
 // ResourceType specifies the metadata about a resource type.
 type ResourceType struct {
 	// ID is the resource type's server unique id. This is often the same value as the "name" attribute.
@@ -36,6 +41,9 @@ type ResourceType struct {
 
 	// Handler is the set of callback method that connect the SCIM server with a provider of the resource type.
 	Handler ResourceHandler
+
+	// PatchLogger logs path and value errors during PATCH request validation.
+	PatchLogger PatchValidationLogger
 }
 
 func (t ResourceType) getRaw() map[string]interface{} {
@@ -153,10 +161,16 @@ func (t ResourceType) validatePatch(r *http.Request) ([]PatchOperation, *errors.
 			t.getSchemaExtensions()...,
 		)
 		if err != nil {
+			if t.PatchLogger != nil {
+				t.PatchLogger.LogPathError(err, v)
+			}
 			return nil, &errors.ScimErrorInvalidPath
 		}
 		value, err := validator.Validate()
 		if err != nil {
+			if t.PatchLogger != nil {
+				t.PatchLogger.LogValueError(err, v)
+			}
 			return nil, &errors.ScimErrorInvalidValue
 		}
 		operations = append(operations, PatchOperation{
